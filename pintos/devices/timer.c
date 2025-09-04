@@ -90,11 +90,11 @@ timer_elapsed (int64_t then) {
 /* Suspends execution for approximately TICKS timer ticks. */
 void
 timer_sleep (int64_t ticks) {
-	int64_t start = timer_ticks ();
+	int64_t start = timer_ticks ();							// 현재 시간(틱 수)를 start 변수에 저장
 
-	ASSERT (intr_get_level () == INTR_ON);
+	ASSERT (intr_get_level () == INTR_ON);					// 지금 인터럽트가 켜저 있는지 확인
 	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+		thread_yield ();									// 원하는 시간(ticks)만큼 안 지났으면 thread_yield()로 CPU를 양보하고 다시 체크
 }
 
 /* Suspends execution for approximately MS milliseconds. */
