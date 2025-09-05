@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Pintos Debug (cppdbg)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/pintos/threads/build/kernel.o",   // 심볼
+      "cwd": "${workspaceFolder}/pintos/threads",
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "miDebuggerServerAddress": "localhost:1234",
+      "externalConsole": false,
+      "stopAtEntry": true,
+      "setupCommands": [
+        { "text": "-gdb-set disassembly-flavor intel" },
+        { "text": "set pagination off" },
+        { "text": "set breakpoint pending on" },
+        // 소스 경로가 다를 수 있으면 아래 줄을 내 경로에 맞게 추가
+        // { "text": "set substitute-path /컨테이너/빌드/경로 ${workspaceFolder}" }
+      ]
+    }
+  ]
+}
