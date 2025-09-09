@@ -81,13 +81,23 @@ timer_elapsed (int64_t then) {
 }
 
 /* 대략 ticks 틱 동안 실행을 중단한다. */
+// Alarm Clock
 void
 timer_sleep (int64_t ticks) {
+	if (ticks <= 0)										// sleep 리스트에 넣고 block했다가 곧바로 깨우면 오버헤드 방지
+	{
+		return;
+	}
+
 	int64_t start = timer_ticks ();	/* 현재 시간(틱 수)을 저장 */
 
 	ASSERT (intr_get_level () == INTR_ON);	/* 인터럽트가 켜져 있는지 확인 */
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();	/* 원하는 시간이 지날 때까지 CPU를 양보 */
+
+	// while (timer_elapsed (start) < ticks)
+	// 	thread_yield ();	/* 원하는 시간이 지날 때까지 CPU를 양보 */
+	
+	int64_t wake = start + ticks;						// 언제 깨워야 하는지 계산
+	thread_sleep(wake);									// wake_tick 값을 기록
 }
 
 /* 대략 ms 밀리초 동안 실행을 중단한다. */
@@ -119,6 +129,7 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+	thread_awake(ticks);
 }
 
 /* LOOPS 반복이 한 틱 이상 걸리면 true를 반환한다. */

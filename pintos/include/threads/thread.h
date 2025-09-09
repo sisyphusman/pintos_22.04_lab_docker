@@ -83,12 +83,14 @@ typedef int tid_t;
  * 두 경우 모두에서 사용할 수 있는 이유는 상호 배타적이기 때문이다:
  * 준비(ready) 상태의 스레드만 실행 큐에 있고,
  * 블록(blocked) 상태의 스레드만 세마포어 대기 리스트에 있다. */
+
 struct thread {
 	/* thread.c에서 소유. */
 	tid_t tid;                          /* 스레드 식별자. */
 	enum thread_status status;          /* 스레드 상태. */
 	char name[16];                      /* 이름(디버깅용). */
 	int priority;                       /* 우선순위. */
+	int64_t wakeup_tick;				// 이 스레드가 깨워져야 할 시간(tick 단위)
 
 	/* thread.c와 synch.c 사이에서 공유. */
 	struct list_elem elem;              /* 리스트 원소. */
@@ -140,5 +142,9 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
+
+// Alarm Clock
+void thread_sleep (int64_t ticks);
+void thread_awake (int64_t now_tick);
 
 #endif /* threads/thread.h */

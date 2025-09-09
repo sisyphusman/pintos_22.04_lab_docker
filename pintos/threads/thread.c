@@ -28,6 +28,9 @@
    즉 실행 준비는 되었지만 실제로 실행 중은 아닌 프로세스들의 리스트. */
 static struct list ready_list;
 
+// 타이머 슬립을 구현할 때 잠든 스레드들을 보관하는 리스트
+static struct list sleep_list;
+
 /* idle 스레드. */
 static struct thread *idle_thread;
 
@@ -105,7 +108,10 @@ thread_init (void) {
 	/* 전역 스레드 컨텍스트 초기화 */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
-	list_init (&destruction_req);
+	list_init (&destruction_req);	
+	
+	// Alarm Clock
+	list_init (&sleep_list);						// sleep_list 초기화
 
 	/* 실행 중인 스레드를 위한 스레드 구조체를 설정. */
 	initial_thread = running_thread ();
@@ -569,4 +575,59 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+// 앞이 뒤보다 작으면 true
+bool thread_wakeup_cmp(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+	const struct thread *x = list_entry(a, struct thread, elem);
+	const struct thread *y = list_entry(b, struct thread, elem);
+	
+	//깨울 시각이 더 이른 스레드가 "작다" => 리스트 앞쪽으로
+	if (x->wakeup_tick != y ->wakeup_tick)
+	{
+		return x->wakeup_tick < y->wakeup_tick;
+	}
+ 
+	// 똑같을때 priority가 작은 것이 앞으로 이동
+	return x->priority < y->priority;
+}
+
+// Alarm Clock
+// wakeup_tick 기록 + sleep_list 삽입 + block 처리
+void thread_sleep (int64_t wakeup_tick)
+{
+	struct thread* cur = thread_current();		    							// 현재 스레드를 가져온다
+	enum intr_level old_level = intr_disable();									// 인터럽트 비활성화
+	cur->wakeup_tick = wakeup_tick;												// 계산된 틱을 저장한다
+
+	ASSERT(!intr_context());
+
+	list_insert_ordered(&sleep_list, &(cur->elem), thread_wakeup_cmp, NULL);	// sleep 리스트에 비교 함수에 따라 새로운 원소를 넣는다
+
+	thread_block();											
+
+	intr_set_level(old_level);													// 인터럽트 활성화
+}
+
+void thread_awake (int64_t now_tick)
+{
+	enum intr_level old = intr_disable();
+
+	while (!list_empty(&sleep_list))											// sleep_list가 빌 때까지(즉, 재울 스레드가 없을 때까지) 맨 앞 원소를 확인
+	{
+		struct thread *t = list_entry(list_front(&sleep_list), struct thread, elem);
+
+		if (t->wakeup_tick <= now_tick)
+		{
+			list_pop_front(&sleep_list);
+			thread_unblock(t);													// READY로
+		}
+		else
+		{
+			break;																// 정렬되어 있으나 이후는 아직
+		}
+	}
+
+	intr_set_level(old);
 }
