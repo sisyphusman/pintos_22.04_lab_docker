@@ -209,6 +209,11 @@ thread_create (const char *name, int priority,
 	/* 실행 큐에 추가. */
 	thread_unblock (t);
 
+	if (t->priority > thread_current()->priority) 
+	{
+		thread_yield();
+	}
+
 	return tid;
 }
 
@@ -234,13 +239,46 @@ thread_block (void) {
    다른 데이터를 갱신할 수 있다고 기대할 수 있기 때문이다. */
 void
 thread_unblock (struct thread *t) {
+
+	// 아래 부분은 이 함수에서 스레드를 선점하면 안되는데 선점을 했다
+	// 여기서는 깨우기만 하고 실제 선점 여부는 호출자(혹은 반환 후)에서 결정하는 구조가 맞다
+	// enum intr_level old_level;
+
+	// ASSERT (is_thread (t));
+
+	// old_level = intr_disable ();
+	// ASSERT (t->status == THREAD_BLOCKED);
+
+	// //Priority
+	// list_insert_ordered(&ready_list, &t->elem, thread_prio_cmp, NULL);
+	// t->status = THREAD_READY;
+
+	// bool need_preempt = (t->priority > thread_current()->priority);
+	// intr_set_level (old_level);
+
+	// if (need_preempt)
+	// {
+	// 	if (intr_context())
+	// 	{
+	// 		intr_yield_on_return();			// 인터럽트 리턴 시점에 양보
+	// 	}
+	// 	else
+	// 	{
+	// 		thread_yield();					// 일반 컨텍스트														// 더 높은 애를 방금 깨웠다면 바로 양보
+	// 	}
+	// }
+
 	enum intr_level old_level;
 
 	ASSERT (is_thread (t));
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+
+	/** project1-Priority Scheduling */
+	list_insert_ordered(&ready_list, &t->elem, thread_prio_cmp, NULL);
+	//list_push_back (&ready_list, &t->elem);
+
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -303,7 +341,11 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+	{
+		// list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &curr->elem, thread_prio_cmp, NULL);
+	}
+
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -312,6 +354,7 @@ thread_yield (void) {
 void
 thread_set_priority (int new_priority) {
 	thread_current ()->priority = new_priority;
+	max_priority ();
 }
 
 /* 현재 스레드의 우선순위를 반환. */
@@ -589,8 +632,20 @@ bool thread_wakeup_cmp(const struct list_elem *a, const struct list_elem *b, voi
 		return x->wakeup_tick < y->wakeup_tick;
 	}
  
-	// 똑같을때 priority가 작은 것이 앞으로 이동
-	return x->priority < y->priority;
+	// 똑같을때 priority가 큰 것이 앞으로 이동
+	return x->priority > y->priority;
+}
+
+// Priority
+bool thread_prio_cmp (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+	const struct thread *x = list_entry (a, struct thread, elem);
+	const struct thread *y = list_entry (b, struct thread, elem);
+
+	if (x == NULL || y == NULL)
+		return false;
+
+	return x->priority > y->priority; 			// 높은 priority가 리스트 앞
 }
 
 // Alarm Clock
@@ -598,12 +653,16 @@ bool thread_wakeup_cmp(const struct list_elem *a, const struct list_elem *b, voi
 void thread_sleep (int64_t wakeup_tick)
 {
 	struct thread* cur = thread_current();		    							// 현재 스레드를 가져온다
+	if (cur == idle_thread) 													// idle 가드
+	{
+		return;
+	}
 	enum intr_level old_level = intr_disable();									// 인터럽트 비활성화
 	cur->wakeup_tick = wakeup_tick;												// 계산된 틱을 저장한다
 
 	ASSERT(!intr_context());
 
-	list_insert_ordered(&sleep_list, &(cur->elem), thread_wakeup_cmp, NULL);	// sleep 리스트에 비교 함수에 따라 새로운 원소를 넣는다
+	list_insert_ordered(&sleep_list, &cur->elem, thread_wakeup_cmp, NULL);	// sleep 리스트에 비교 함수에 따라 새로운 원소를 넣는다
 
 	thread_block();											
 
@@ -613,21 +672,47 @@ void thread_sleep (int64_t wakeup_tick)
 void thread_awake (int64_t now_tick)
 {
 	enum intr_level old = intr_disable();
+    bool preempt = false;
 
-	while (!list_empty(&sleep_list))											// sleep_list가 빌 때까지(즉, 재울 스레드가 없을 때까지) 맨 앞 원소를 확인
+	while (!list_empty(&sleep_list))												// sleep_list가 빌 때까지(즉, 재울 스레드가 없을 때까지) 맨 앞 원소를 확인
 	{
 		struct thread *t = list_entry(list_front(&sleep_list), struct thread, elem);
 
 		if (t->wakeup_tick <= now_tick)
 		{
 			list_pop_front(&sleep_list);
-			thread_unblock(t);													// READY로
+			thread_unblock(t);														// READY로
+					
+			if (t->priority > thread_current()->priority) 
+			{ 
+				preempt = true;														// 깬 애가 더 높으면 선점 플래그
+			}
 		}
 		else
 		{
-			break;																// 정렬되어 있으나 이후는 아직
+			break;																	// 아직 안 깰 시간이면 즉시 종료
 		}
 	}
 
+  	if (preempt) 
+	{
+		intr_yield_on_return();   													// 인터럽트 리턴 시 선점
+	}
+
 	intr_set_level(old);
+}
+
+void max_priority()
+{
+	if (list_empty(&ready_list))
+	{
+		return;
+	}
+
+	struct thread *th = list_entry(list_front(&ready_list), struct thread, elem);
+
+	if (thread_get_priority() < th->priority)
+	{
+		thread_yield();
+	}
 }
